@@ -1,15 +1,14 @@
 """Professional browser dashboard for NeuralNotes."""
 import json
 import os
-import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote
 
 from study_pack import ENGINE_NAME, generate, markdown, preview, source_lines
 
-HOST = "127.0.0.1"
-PORT = 5050
+HOST = "0.0.0.0"
+PORT = int(os.environ.get("PORT", "5050"))
 ROOT = Path(__file__).resolve().parent
 
 HTML = r"""<!doctype html>
@@ -155,6 +154,5 @@ class NeuralNotesHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     server = ThreadingHTTPServer((HOST, PORT), NeuralNotesHandler)
-    print(f"NeuralNotes is running at http://{HOST}:{PORT}")
-    webbrowser.open(f"http://{HOST}:{PORT}")
+    print(f"NeuralNotes is listening on {HOST}:{PORT}")
     server.serve_forever()
