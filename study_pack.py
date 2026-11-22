@@ -2,11 +2,12 @@
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
 from google import genai
-from google.genai import errors as genai_errors
+from google.genai import errors as genai_errors, types
 
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
@@ -103,13 +104,37 @@ def gemini(stage, payload, schema=None):
             "schema": gemini_schema(schema),
         }
 
-    client = genai.Client(api_key=api_key)
-    try:
-        response = client.interactions.create(**request)
-    except genai_errors.APIError as error:
-        raise ValueError(f"Gemini API request failed: {error}") from error
-    finally:
-        client.close()
+    stage_name = {"p1": "Evidence", "p2": "Draft", "p3": "Review"}.get(stage, stage.upper())
+    started = time.monotonic()
+    print(f"Gemini {stage_name} started ({MODEL})", flush=True)
+    with genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(
+            timeout=25_000,
+            retry_options=types.HttpRetryOptions(attempts=1),
+        ),
+    ) as client:
+        try:
+            response = client.interactions.create(**request)
+        except genai_errors.APIError as error:
+            code = getattr(error, "code", None)
+            print(f"Gemini {stage_name} failed with HTTP {code}.", flush=True)
+            hints = {
+                400: "Check the key, model, and request configuration.",
+                401: "Check GOOGLE_API_KEY in Render Environment.",
+                403: "Check the key's permissions.",
+                404: "Check GEMINI_MODEL in Render Environment.",
+                429: "Check Gemini quota or rate limits.",
+            }
+            hint = hints.get(code, "Check Render logs or try again later.")
+            raise ValueError(f"Gemini {stage_name} failed (HTTP {code}). {hint}") from None
+        except Exception as error:
+            elapsed = time.monotonic() - started
+            print(f"Gemini {stage_name} failed after {elapsed:.1f}s ({type(error).__name__}).", flush=True)
+            raise ValueError(
+                f"Gemini {stage_name} request did not complete. Check Render logs for the error type."
+            ) from None
+    print(f"Gemini {stage_name} completed in {time.monotonic() - started:.1f}s", flush=True)
 
     content = response.output_text
     if not content or not content.strip():
